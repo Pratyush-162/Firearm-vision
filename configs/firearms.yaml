@@ -1,0 +1,15 @@
+# Created/updated by scripts/import_kaggle_yolo.py. Keep all nine source labels distinct.
+path: data/processed
+train: train/images
+val: valid/images
+test: test/images
+names:
+  0: automatic_rifle
+  1: bazooka
+  2: grenade_launcher
+  3: handgun
+  4: knife
+  5: shotgun
+  6: smg
+  7: sniper_rifle
+  8: sword

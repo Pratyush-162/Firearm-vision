@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+runs/
+outputs/
+models/
+videos/
+registered_faces/
+weights/
+
+# Large model files
+*.pt
+*.onnx
+*.pkl
+
+# Media and logs
+*.mp4
+*.log
+.DS_Store

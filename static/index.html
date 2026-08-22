@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firearm Vision — Universal Weapon & CCTV Surveillance Dashboard</title>
+    <meta name="description" content="Real-time RTSP camera stream monitoring, universal weapon detection (firearms, knives, blades, swords), and CCTV quality enhancement.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260821">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Header Navigation -->
+        <header class="app-header">
+            <div class="header-left">
+                <a href="/" class="back-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                    BACK
+                </a>
+                <img src="/static/logo.png" style="height: 40px; width: auto;" alt="Logo">
+            </div>
+            <div class="brand" style="position: absolute; left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap;">
+                <div class="brand-text" style="display: flex; flex-direction: row; align-items: baseline; justify-content: center; gap: 0.5rem;">
+                    <h1 style="margin: 0;">FIREARM VISION</h1>
+                    <span class="sub-brand">| UNIVERSAL WEAPON DETECTION & CCTV OPTIMIZED SURVEILLANCE</span>
+                </div>
+            </div>
+
+            <div class="header-status">
+                <div class="status-badge" id="connectionStatusBadge">
+                    <span class="status-dot"></span>
+                    <span class="status-text" id="statusText">INITIALIZING</span>
+                </div>
+                <div class="fps-badge">
+                    <span class="fps-value" id="fpsDisplay">0.0</span>
+                    <span class="fps-unit">FPS</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Alert Notification Bar -->
+        <div class="alert-banner hidden" id="alertBanner">
+            <div class="alert-banner-content">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <span class="alert-banner-title">POSSIBLE WEAPON DETECTED</span>
+                <span class="alert-banner-desc" id="alertBannerDetail">HUMAN REVIEW REQUIRED</span>
+            </div>
+        </div>
+
+        <!-- Main Content Layout -->
+        <main class="dashboard-grid">
+            <!-- Left Column: Video Feed & Connection -->
+            <section class="viewport-section">
+                <!-- RTSP Source Connection Bar -->
+                <div class="glass-card connection-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 7l-7 5 7 5V7z"/>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                            </svg>
+                            RTSP CCTV & Camera Stream Source
+                        </h2>
+                    </div>
+
+                    <form id="connectForm" class="connect-form">
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="sourceInput" 
+                                class="text-input" 
+                                placeholder="rtsp://username:password@192.168.1.100:554/stream or 0 for webcam" 
+                                required
+                            />
+                            <button type="submit" class="btn btn-primary" id="connectBtn">
+                                <span>CONNECT STREAM</span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="preset-pills">
+                        <span class="preset-label">Quick Presets:</span>
+                        <button type="button" class="pill-btn" onclick="setPreset('0')">📷 Local Webcam (0)</button>
+                        <button type="button" class="pill-btn" onclick="setPreset('rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny.mp4')">🌐 RTSP Demo Stream</button>
+                        <button type="button" class="pill-btn" onclick="setPreset('videos/test.mp4')">📁 Local Video File</button>
+                    </div>
+                </div>
+
+                <!-- Live Stream Container -->
+                <div class="glass-card stream-card">
+                    <div class="stream-wrapper">
+                        <img id="videoFeed" src="/api/stream" alt="RTSP Live Detection Feed" class="stream-img" onerror="handleStreamError()"/>
+                        <div class="stream-overlay-top">
+                            <span class="overlay-badge" id="sourceOverlay">SRC: --</span>
+                            <span class="overlay-badge" id="cctvOverlay">MODE: CCTV-HQ (1280p) + TILE-4X</span>
+                            <span class="overlay-badge" id="frameOverlay">FRAME: 0</span>
+                        </div>
+
+                        <!-- Interactive Live Head-Direction Enrollment HUD -->
+                        <div id="enrollHud" class="enroll-hud" style="display: none;">
+                            <div class="hud-content">
+                                <span class="hud-icon" id="hudIcon">📸</span>
+                                <div class="hud-text">
+                                    <div id="hudTitle" class="hud-title">ENROLLING 30 FACE SNAPSHOTS...</div>
+                                    <div id="hudDesc" class="hud-desc">👀 Step 1/4: Look straight at camera...</div>
+                                </div>
+                            </div>
+                            <div class="hud-progress-bar"><div id="hudProgressFill" class="hud-progress-fill"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Settings, Identities, & Detection Logs -->
+            <section class="controls-section">
+                
+                <!-- Known Identities Panel (Autographs) -->
+                <div class="glass-card identities-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            Known Identities in Frame
+                        </h2>
+                    </div>
+                    <div id="identitiesList" class="identities-list" style="min-height: 80px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px;">No known persons detected.</span>
+                    </div>
+                </div>
+
+                <!-- CCTV Quality & Universal Weapon Controls -->
+                <div class="glass-card settings-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                            </svg>
+                            CCTV Quality & Multi-Angle Accuracy
+                        </h2>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label>Target Detection Mode</label>
+                            <span class="setting-desc">Switch focus between Weapons and Faces</span>
+                        </div>
+                        <div class="mode-button-group">
+                            <button type="button" id="btnModeWeapons" class="mode-btn active" onclick="setDetectMode('weapons_only')">🎯 Weapons Only</button>
+                            <button type="button" id="btnModePersons" class="mode-btn" onclick="setDetectMode('faces_only')">👤 Faces Only</button>
+                            <button type="button" id="btnModeAll" class="mode-btn" onclick="setDetectMode('all')">⚡ All</button>
+                        </div>
+                    </div>
+
+                       <div class="card-header" style="margin-top: 0.5rem;">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                            Person Identification & Face Enrollment
+                        </h2>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="enrollNameInput">1. Enroll Person Face Profile</label>
+                            <span class="setting-desc">Enter name and capture live face photos from video stream</span>
+                        </div>
+                        <div class="input-group" style="width: 100%; margin-top: 0.4rem;">
+                            <input type="text" id="enrollNameInput" class="text-input" placeholder="e.g. Pratyush Bharadwaj" style="font-size: 0.85rem;" />
+                            <button type="button" class="btn-primary" onclick="enrollCurrentFace()" style="white-space: nowrap; padding: 0.5rem 0.8rem; font-size: 0.8rem;">
+                                <span>ENROLL FACE</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+    <script src="/static/js/app.js?v=6"></script>
+</body>
+</html>
