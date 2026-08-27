@@ -136,8 +136,25 @@
                             Known Identities in Frame
                         </h2>
                     </div>
-                    <div id="identitiesList" class="identities-list" style="min-height: 80px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                        <span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px;">No known persons detected.</span>
+                    <div id="identitiesList" class="identities-list" style="min-height: 80px; padding: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px; grid-column: 1 / -1;">No persons detected.</span>
+                    </div>
+                </div>
+                
+                <!-- Unknown Identities Panel -->
+                <div class="glass-card identities-card" style="margin-top: 15px;">
+                    <div class="card-header">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffc800" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            <span style="color: #ffc800;">Unknown Persons</span>
+                        </h2>
+                    </div>
+                    <div id="unknownIdentitiesList" class="identities-list" style="min-height: 80px; padding: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        <span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px; grid-column: 1 / -1;">No unknown persons detected.</span>
                     </div>
                 </div>
 

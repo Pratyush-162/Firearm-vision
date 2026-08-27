@@ -194,36 +194,76 @@ async function fetchStatus() {
 
         // Update Identities List (Side Panel)
         const identitiesList = document.getElementById('identitiesList');
-        if (identitiesList && status.active_detections) {
-            const activeIdentities = new Set();
+        const unknownIdentitiesList = document.getElementById('unknownIdentitiesList');
+        
+        if (identitiesList && unknownIdentitiesList && status.active_detections) {
+            const knownIdentities = new Set();
+            const unknownIdentities = new Set();
+            let unknownCount = 0;
+            
             status.active_detections.forEach(det => {
                 if (det.label && det.label.startsWith("Person: ")) {
-                    activeIdentities.add(det.label.replace("Person: ", "").trim());
+                    knownIdentities.add(det.label.replace("Person: ", "").trim());
+                } else if (det.label === "Unknown" || (det.label && det.label.startsWith("Associate "))) {
+                    const nameToUse = det.label === "Unknown" ? `Unknown (Track ${det.track_id})` : det.label;
+                    unknownIdentities.add(nameToUse);
                 }
             });
 
-            if (activeIdentities.size === 0) {
-                identitiesList.innerHTML = '<span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px;">No known persons detected.</span>';
+            // Handle Known Identities
+            if (knownIdentities.size === 0) {
+                identitiesList.innerHTML = '<span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px; grid-column: 1 / -1;">No known persons detected.</span>';
             } else {
                 identitiesList.innerHTML = '';
-                Array.from(activeIdentities).sort().forEach(ident => {
+                Array.from(knownIdentities).sort().forEach(ident => {
                     const safeId = ident.toLowerCase().replace(/\s+/g, '_');
+                    const color = "#00e676";
+                    
                     const item = document.createElement('div');
-                    item.style = 'display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: rgba(0, 230, 118, 0.05); border: 1px solid rgba(0, 230, 118, 0.2); padding: 6px; border-radius: 8px;';
+                    item.style = `display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: rgba(0, 230, 118, 0.05); border: 1px solid rgba(0, 230, 118, 0.2); padding: 6px; border-radius: 8px;`;
                     
                     const img = document.createElement('img');
                     img.src = `/faces/${safeId}/${safeId}_1.jpg`;
-                    img.style = 'width: 100%; aspect-ratio: 1; border-radius: 6px; object-fit: cover; background: #222; border: 2px solid #00e676;';
-                    // Fallback avatar if dataset image is missing or named differently
-                    img.onerror = () => { img.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="%23888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>'; };
+                    img.style = `width: 100%; aspect-ratio: 1; border-radius: 6px; object-fit: cover; background: #222; border: 2px solid ${color};`;
+                    // Fallback avatar
+                    img.onerror = () => { img.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="%23888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`; };
                     
                     const nameSpan = document.createElement('span');
-                    nameSpan.style = 'color: #fff; font-weight: 600; font-size: 0.9em; text-transform: capitalize; text-align: center; word-break: break-word; line-height: 1.2;';
+                    nameSpan.style = 'color: #fff; font-weight: 600; font-size: 0.8em; text-transform: capitalize; text-align: center; word-break: break-word; line-height: 1.2;';
                     nameSpan.innerText = ident;
                     
                     item.appendChild(img);
                     item.appendChild(nameSpan);
                     identitiesList.appendChild(item);
+                });
+            }
+
+            // Handle Unknown Identities
+            if (unknownIdentities.size === 0) {
+                unknownIdentitiesList.innerHTML = '<span style="color: #888; font-size: 0.9em; text-align: center; margin-top: 15px; grid-column: 1 / -1;">No unknown persons detected.</span>';
+            } else {
+                unknownIdentitiesList.innerHTML = '';
+                Array.from(unknownIdentities).sort().forEach(ident => {
+                    const safeId = ident.toLowerCase().replace(/[()]/g, '').replace(/\s+/g, '_');
+                    const color = "#ffc800";
+                    
+                    const item = document.createElement('div');
+                    item.style = `display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: rgba(255, 200, 0, 0.05); border: 1px solid rgba(255, 200, 0, 0.2); padding: 6px; border-radius: 8px;`;
+                    
+                    const img = document.createElement('img');
+                    // Add timestamp to bust cache so live snapshot updates
+                    img.src = `/faces/${safeId}/${safeId}_1.jpg?t=${Date.now()}`;
+                    img.style = `width: 100%; aspect-ratio: 1; border-radius: 6px; object-fit: cover; background: #222; border: 2px solid ${color};`;
+                    // Fallback avatar
+                    img.onerror = () => { img.src = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="%23888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`; };
+                    
+                    const nameSpan = document.createElement('span');
+                    nameSpan.style = 'color: #fff; font-weight: 600; font-size: 0.8em; text-transform: capitalize; text-align: center; word-break: break-word; line-height: 1.2;';
+                    nameSpan.innerText = ident;
+                    
+                    item.appendChild(img);
+                    item.appendChild(nameSpan);
+                    unknownIdentitiesList.appendChild(item);
                 });
             }
         }

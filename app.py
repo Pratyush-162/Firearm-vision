@@ -21,18 +21,18 @@ stream_manager: RTSPStreamManager = None
 async def lifespan(app: FastAPI):
     # Startup logic
     global stream_manager
-    model_path = getattr(app.state, "model_path", "runs/detect/runs/universal-weapon/weights/best.pt")
+    model_path = getattr(app.state, "model_path", "best.pt")
     initial_source = getattr(app.state, "source", "0")
     confidence = getattr(app.state, "confidence", 0.35)
     frames = getattr(app.state, "frames", 5)
-    required = getattr(app.state, "required", 3)
+    required = getattr(app.state, "required", 2)
     faces = getattr(app.state, "faces", False)
     blur_faces = getattr(app.state, "blur_faces", False)
     cctv_mode = getattr(app.state, "cctv_mode", True)
     clahe_enhance = getattr(app.state, "clahe_enhance", False)
     sharpness_boost = getattr(app.state, "sharpness_boost", True)
     tile_inference = getattr(app.state, "tile_inference", True)
-    imgsz = getattr(app.state, "imgsz", 960)
+    imgsz = getattr(app.state, "imgsz", 1280)
     detect_mode = getattr(app.state, "detect_mode", "weapons_only")
     weapon_filter = getattr(app.state, "weapon_filter", "all_weapons")
 
@@ -182,18 +182,18 @@ async def enroll_person(payload: EnrollRequest):
 
 def main():
     parser = argparse.ArgumentParser(description="Firearm Vision Universal Weapon & CCTV Dashboard Server")
-    parser.add_argument("--model", type=str, default="runs/detect/runs/universal-weapon/weights/best.pt", help="Path to custom YOLO weapon model")
+    parser.add_argument("--model", type=str, default="best.pt", help="Path to custom YOLO weapon model")
     parser.add_argument("--source", default="0", help="RTSP URL (rtsp://...), webcam index (0), or video file")
     parser.add_argument("--confidence", type=float, default=0.35, help="Confidence threshold (0.0 to 1.0)")
     parser.add_argument("--frames", type=int, default=5, help="Temporal window size")
-    parser.add_argument("--required", type=int, default=3, help="Required temporal confirmations")
+    parser.add_argument("--required", type=int, default=2, help="Required temporal confirmations")
     parser.add_argument("--faces", action="store_true", help="Draw face boxes")
     parser.add_argument("--blur-faces", action="store_true", help="Blur detected faces")
     parser.add_argument("--disable-cctv-mode", action="store_true", help="Disable CCTV high-resolution slice inference")
     parser.add_argument("--clahe", action="store_true", help="Enable CLAHE low-light enhancement")
     parser.add_argument("--disable-sharpness", action="store_true", help="Disable CCTV edge sharpening filter")
     parser.add_argument("--disable-tiling", action="store_true", help="Disable multi-tile crop inference")
-    parser.add_argument("--imgsz", type=int, default=960, help="Inference resolution (640, 960, 1280)")
+    parser.add_argument("--imgsz", type=int, default=1280, help="Inference resolution (640, 960, 1280)")
     parser.add_argument("--mode", default="weapons_only", choices=["weapons_only", "faces_only", "persons_only", "all"], help="Detection target mode")
     parser.add_argument("--weapon-filter", default="all_weapons", choices=["all_weapons", "firearms_only"], help="Filter scope")
     parser.add_argument("--host", default="0.0.0.0", help="Server host IP")

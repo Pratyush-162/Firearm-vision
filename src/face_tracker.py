@@ -391,7 +391,7 @@ class SmoothObjectTracker:
         active_outputs = []
         for track in self.tracks:
             # Only render tracks that currently have active physical detections in frame (allow more bridge frames to prevent flickering)
-            if track.missed_frames <= 15:
+            if track.missed_frames <= 45:
                 track.predict_step()
                 box = track.get_int_box()
                 

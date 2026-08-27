@@ -64,6 +64,15 @@ from src.face_recognizer import FaceIdentificationEngine
 
 # Dictionary mapping weapon labels to normalized display categories
 WEAPON_CLASSES = {
+    # weapon-yolo26x classes
+    "Blunt_Weapon": "Blunt Weapon",
+    "Explosive": "Explosive Weapon",
+    "Fire_Smoke": "Fire/Smoke",
+    "Firearm": "Firearm",
+    "Melee_Weapon": "Melee Weapon",
+    "Person": "Face",  # Note: weapon-yolo26x outputs Person, but we map to Face/Person logic
+    "Tool": "Tool",
+
     # Long Firearms & Rifles
     "automatic_rifle": "Firearm (Automatic Rifle)",
     "assault_rifle": "Firearm (Assault Rifle)",
@@ -215,7 +224,7 @@ class RTSPStreamManager:
     """
     def __init__(
         self,
-        model_path="runs/firearms/weights/best.pt",
+        model_path="best.pt",
         source="0",
         confidence=0.35,
         frames=5,
@@ -256,7 +265,7 @@ class RTSPStreamManager:
 
         from src.face_tracker import SmoothObjectTracker
         from src.lightweight_tracker import LightweightTrackerEngine
-        self.tracker = SmoothObjectTracker(max_missed_frames=30, iou_threshold=0.20)
+        self.tracker = SmoothObjectTracker(max_missed_frames=90, iou_threshold=0.20)
         self.klt_tracker = LightweightTrackerEngine(dist_thresh=200.0, max_missed=15)
 
         self.lock = threading.Lock()
@@ -280,6 +289,7 @@ class RTSPStreamManager:
         self.is_confirmed_alert = False
         self.alert_history = deque(maxlen=100)
         self._alert_open = False
+        self.captured_unknowns = set()
 
         # Worker Threads & Alert CSV
         self._capture_thread = None
@@ -287,44 +297,35 @@ class RTSPStreamManager:
         self.alert_csv_path = self.output_dir / "alerts.csv"
         self._init_alerts_csv()
 
-        # Load models (Custom best.pt + YOLO 360° Person Detector + RetinaFace 5-Landmark Detector + ArcFace Person Identifier)
+        # Load the weapon model immediately
         self.custom_model = self._load_custom_weapon_model(model_path)
-        self.person_model = self._load_person_model()
-        self.pose_model = self._load_pose_model()
-        self.face_detector = self._load_face_detector()
-        self.face_recognizer = FaceIdentificationEngine()
+        self.face_recognizer = None
+        self._face_recognizer_lock = threading.Lock()
+        self.face_ai_ready = False
+        
+        # Start async loading of Face AI in background
+        threading.Thread(target=self._async_load_face_ai, daemon=True).start()
+        
         self.gate = TemporalConfirm(frames=self.frames_window, required=self.required_matches)
 
-    def _load_person_model(self):
-        if not YOLO:
-            return None
-        person_paths = [
-            Path("yolov8n.pt"),
-            Path("yolo11n.pt")
-        ]
-        for p in person_paths:
-            if p.exists():
-                print(f"[INFO] Loading YOLO 360-Degree Person Detector from {p}")
-                try:
-                    return YOLO(str(p))
-                except Exception as e:
-                    print(f"[WARN] Could not load person model {p}: {e}")
-        return None
+    def _async_load_face_ai(self):
+        # Delay loading by 3 seconds to ensure Uvicorn has time to fully bind to Port 8000
+        # This prevents the heavy ONNX C++ initialization from hogging the Python GIL during boot.
+        import time
+        time.sleep(3.0)
+        print("[INFO] Background thread starting Face AI initialization...")
+        try:
+            with self._face_recognizer_lock:
+                self.face_recognizer = FaceIdentificationEngine()
+            self.face_ai_ready = True
+            print("[INFO] ✓ Face AI successfully loaded in background.")
+        except Exception as e:
+            print(f"[ERROR] Failed to load Face AI: {e}")
 
-    def _load_pose_model(self):
-        if not YOLO:
-            return None
-        pose_paths = [
-            Path("yolov8n-pose.pt"),
-            Path("yolo11n-pose.pt")
-        ]
-        for p in pose_paths:
-            if p.exists():
-                print(f"[INFO] Loading 360-Degree Pose Head Anchor model from {p}")
-                try:
-                    return YOLO(str(p))
-                except Exception as e:
-                    print(f"[WARN] Could not load pose model {p}: {e}")
+    def _ensure_face_recognizer(self):
+        # Non-blocking: returns None if the background thread is still loading
+        if self.face_ai_ready and self.face_recognizer is not None:
+            return self.face_recognizer
         return None
 
     def _load_custom_weapon_model(self, path):
@@ -347,26 +348,6 @@ class RTSPStreamManager:
                     return YOLO(str(cp))
                 except Exception as e:
                     print(f"[WARN] Could not load model {cp}: {e}")
-        return None
-
-    def _load_face_detector(self):
-        try:
-            if Path("yolov8n-face.pt").exists() and YOLO:
-                print("[INFO] Loading ultra-fast 60 FPS YOLO face model yolov8n-face.pt")
-                return YOLO("yolov8n-face.pt")
-            elif Path("yolov8l-face.pt").exists() and YOLO:
-                print("[INFO] Loading high-capacity YOLO face model yolov8l-face.pt")
-                return YOLO("yolov8l-face.pt")
-        except Exception as e:
-            print(f"[WARN] Failed to load YOLO face model: {e}")
-
-        try:
-            path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            detector = cv2.CascadeClassifier(path)
-            if not detector.empty():
-                return detector
-        except Exception as e:
-            print(f"[WARN] Failed to load OpenCV face detector: {e}")
         return None
 
     def _init_alerts_csv(self):
@@ -457,15 +438,21 @@ class RTSPStreamManager:
                 self.weapon_filter = str(weapon_filter)
 
     def _detect_and_blur_faces(self, frame):
-        """Applies Gaussian Blur for face privacy if blur_faces is enabled."""
-        if not self.blur_faces or not self.face_detector:
+        """Applies Gaussian Blur for face privacy using thread-safe OpenCV Haar cascade."""
+        if not self.blur_faces:
             return
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.face_detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(32, 32))
-        for (x, y, w, h) in faces:
-            region = frame[y:y+h, x:x+w]
-            if region.size > 0:
-                frame[y:y+h, x:x+w] = cv2.GaussianBlur(region, (31, 31), 0)
+        try:
+            path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            detector = cv2.CascadeClassifier(path)
+            if not detector.empty():
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(32, 32))
+                for (x, y, w, h) in faces:
+                    region = frame[y:y+h, x:x+w]
+                    if region.size > 0:
+                        frame[y:y+h, x:x+w] = cv2.GaussianBlur(region, (31, 31), 0)
+        except Exception:
+            pass
 
     def _classify_detection(self, raw_label):
         lbl = raw_label.lower().replace(" ", "_").strip()
@@ -493,25 +480,11 @@ class RTSPStreamManager:
         cands = []
         mode = self.detect_mode
 
-        # 1. Custom Fine-Tuned Model (best.pt) - Active in 'weapons_only' and 'all' modes
+        # weapon-yolo26x model - Active in 'weapons_only' and 'all' modes
         if mode in ("weapons_only", "all") and self.custom_model:
             try:
                 results = self.custom_model(img, conf=conf, imgsz=imgsz, verbose=False)[0]
                 if results.boxes is not None and len(results.boxes) > 0:
-                    pose_kpts = []
-                    if self.pose_model:
-                        try:
-                            p_res = self.pose_model(img, conf=0.30, verbose=False)[0]
-                            if p_res.keypoints is not None:
-                                for kpts in p_res.keypoints:
-                                    kd = kpts.data[0].cpu().numpy()
-                                    # Collect wrists (indices 9 and 10)
-                                    for kidx in [9, 10]:
-                                        if len(kd) > kidx and kd[kidx][2] > 0.3:
-                                            pose_kpts.append((kd[kidx][0] + offset_x, kd[kidx][1] + offset_y))
-                        except Exception:
-                            pass
-
                     for box, score, cls in zip(
                         results.boxes.xyxy.cpu().tolist(),
                         results.boxes.conf.cpu().tolist(),
@@ -523,18 +496,9 @@ class RTSPStreamManager:
                         norm_label, is_weapon = self._classify_detection(raw_label)
                         
                         if not is_weapon:
-                            continue  # Prevent weapon model non-weapon classes from polluting the person tracker
+                            continue  # Person/Tool from weapon model handled by face inference
                             
-                        is_brandished = False
-                        if is_weapon and pose_kpts:
-                            margin = 60
-                            bx1, by1, bx2, by2 = abs_box
-                            for px, py in pose_kpts:
-                                if bx1 - margin <= px <= bx2 + margin and by1 - margin <= py <= by2 + margin:
-                                    is_brandished = True
-                                    break
-                                    
-                        cands.append((norm_label, score, abs_box, is_weapon, is_brandished))
+                        cands.append((norm_label, score, abs_box, is_weapon, False))
             except Exception as e:
                 pass
         
@@ -545,106 +509,16 @@ class RTSPStreamManager:
         mode = self.detect_mode
         if mode not in ("faces_only", "persons_only", "all"):
             return cands
-            
-        face_cands = []
-        if self.face_recognizer and self.face_recognizer.det_model:
+
+        # Use InsightFace buffalo_l for face detection + ArcFace recognition in one pass
+        face_recognizer = self._ensure_face_recognizer()
+        if face_recognizer:
             try:
-                bboxes, kpss = self.face_recognizer.det_model.detect(img, max_num=10, metric="default")
-                if bboxes is not None and len(bboxes) > 0:
-                    for idx, bbox in enumerate(bboxes):
-                        x1, y1, x2, y2, score = bbox[:5]
-                        if score >= 0.25:  # Cleaned high-precision face score threshold
-                            abs_box = (x1, y1, x2, y2)
-                            kps = kpss[idx] if (kpss is not None and idx < len(kpss)) else None
-                            face_lbl, face_score, _ = self.face_recognizer.identify_face(img, (x1, y1, x2, y2), landmark=kps)
-                            face_cands.append((face_lbl, max(float(score), face_score), abs_box))
+                face_results = face_recognizer.detect_and_identify(img, max_faces=10)
+                for fr in face_results:
+                    cands.append((fr["label"], fr["confidence"], tuple(fr["box"]), False, False))
             except Exception as e:
                 pass
-
-        person_boxes = []
-        if self.person_model:
-            try:
-                p_results = self.person_model(img, conf=0.55, imgsz=imgsz, verbose=False)[0]
-                if p_results.boxes is not None:
-                    for box, score, cls in zip(
-                        p_results.boxes.xyxy.cpu().tolist(),
-                        p_results.boxes.conf.cpu().tolist(),
-                        p_results.boxes.cls.cpu().tolist()
-                    ):
-                        if int(cls) == 0:  # Person class
-                            px1, py1, px2, py2 = box
-                            ph = py2 - py1
-                            hy2 = py1 + ph * 0.60  # Head & Upper-body crop (60% to handle seated people)
-                            abs_pbox = (px1, py1, px2, hy2)
-                            person_boxes.append((abs_pbox, float(score)))
-            except Exception:
-                pass
-
-        # Global Optimal Face-to-Person Association (Resolves Proximity & Occlusion Stealing)
-        matched_face_indices = set()
-        if person_boxes and face_cands:
-            pairs = []
-            for p_idx, (p_box, p_score) in enumerate(person_boxes):
-                px1, py1, px2, py2 = p_box
-                p_area = max(1.0, (px2 - px1) * (py2 - py1))
-                p_cx = (px1 + px2) / 2.0
-                p_w = max(1.0, px2 - px1)
-
-                for f_idx, (f_lbl, f_score, f_box) in enumerate(face_cands):
-                    fx1, fy1, fx2, fy2 = f_box
-                    ix1, iy1 = max(px1, fx1), max(py1, fy1)
-                    ix2, iy2 = min(px2, fx2), min(py2, fy2)
-                    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
-
-                    if inter > 0:
-                        f_area = max(1.0, (fx2 - fx1) * (fy2 - fy1))
-                        containment = inter / f_area  # Fraction of face inside person upper-body (0.0 to 1.0)
-                        union = p_area + f_area - inter
-                        iou = inter / max(1.0, union)
-                        f_cx = (fx1 + fx2) / 2.0
-                        center_score = max(0.0, 1.0 - (abs(p_cx - f_cx) / p_w))
-
-                        composite_score = 0.6 * containment + 0.2 * iou + 0.2 * center_score
-                        if composite_score >= 0.15:
-                            pairs.append((composite_score, p_idx, f_idx))
-
-            # Global best-match-first assignment (1-to-1 bijection)
-            pairs.sort(key=lambda x: x[0], reverse=True)
-            assigned_persons = set()
-            assigned_faces = {}
-
-            for score, p_idx, f_idx in pairs:
-                if p_idx in assigned_persons or f_idx in assigned_faces.values():
-                    continue
-                assigned_persons.add(p_idx)
-                assigned_faces[p_idx] = f_idx
-
-            for p_idx, (p_box, p_score) in enumerate(person_boxes):
-                matched_identity = None
-                matched_score = p_score
-                face_seen = False
-
-                if p_idx in assigned_faces:
-                    f_idx = assigned_faces[p_idx]
-                    f_lbl, f_score, _ = face_cands[f_idx]
-                    face_seen = True
-                    matched_face_indices.add(f_idx)
-                    matched_identity = f_lbl
-                    matched_score = max(p_score, f_score)
-
-                if face_seen:
-                    cands.append((matched_identity, matched_score, p_box, False, False))
-                else:
-                    cands.append(("Identifying...", p_score, p_box, False, False))
-
-        elif person_boxes:
-            # No face candidates detected on frame -> pass raw person detections as Identifying...
-            for p_box, p_score in person_boxes:
-                cands.append(("Identifying...", p_score, p_box, False, False))
-
-        for f_idx, (f_lbl, f_score, f_box) in enumerate(face_cands):
-            if f_idx not in matched_face_indices and f_lbl.startswith("Person: "):
-                cands.append((f_lbl, f_score, f_box, False, False))
 
         return cands
 
@@ -799,6 +673,25 @@ class RTSPStreamManager:
             # Render active detection boxes with zero-latency 60+ FPS smooth room-wide tracking & identity lock
             smoothed_dets = self.tracker.step_frame(frame) if hasattr(self, 'tracker') else None
             display_dets = smoothed_dets if smoothed_dets else current_dets
+            
+            # Enterprise Feature: Associate Tracking
+            # Identify unknowns who are interacting with a known person (close proximity)
+            known_people = [d for d in display_dets if d.get("label", "").startswith("Person: ")]
+            for det in display_dets:
+                if det.get("label", "") == "Unknown":
+                    x1, y1, x2, y2 = det["box"]
+                    cx, cy = (x1 + x2)/2, (y1 + y2)/2
+                    
+                    for kp in known_people:
+                        kx1, ky1, kx2, ky2 = kp["box"]
+                        kcx, kcy = (kx1 + kx2)/2, (ky1 + ky2)/2
+                        
+                        dist = ((cx - kcx)**2 + (cy - kcy)**2)**0.5
+                        # If an unknown person is within a strict distance of a known person
+                        if dist < 450.0:  
+                            k_name = kp["label"].replace("Person: ", "").strip()
+                            det["label"] = f"Associate of {k_name}"
+                            break
 
             for det in display_dets:
                 x1, y1, x2, y2 = det["box"]
@@ -813,9 +706,9 @@ class RTSPStreamManager:
                 if raw_lbl.startswith("Person: "):
                     clean_lbl = raw_lbl.replace("Person: ", "").strip()
                     color = (0, 230, 118)  # Bright Green box for Identified Person
-                elif raw_lbl in ("Unknown", "Identifying..."):
+                elif raw_lbl in ("Unknown", "Identifying...") or raw_lbl.startswith("Associate "):
                     clean_lbl = raw_lbl
-                    color = (255, 200, 0)  # Amber/Yellow box for Unconfirmed
+                    color = (0, 200, 255)  # Amber/Yellow box for Unconfirmed
                 elif is_weapon:
                     clean_lbl = raw_lbl
                     color = (0, 0, 255) if is_cand_confirmed else (0, 140, 255)
@@ -825,8 +718,8 @@ class RTSPStreamManager:
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 
-                # Only draw floating labels on the bounding box for weapons or unconfirmed tracks
-                if is_weapon or not raw_lbl.startswith("Person: "):
+                # Always draw floating labels on the bounding box
+                if True:
                     text_str = f"{clean_lbl} {det['confidence']:.2f}"
                     (w_text, h_text), _ = cv2.getTextSize(text_str, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
                     cv2.rectangle(frame, (x1, max(0, y1 - 22)), (x1 + w_text + 6, max(22, y1)), color, -1)
@@ -953,8 +846,7 @@ class RTSPStreamManager:
             for norm_label, score, box, is_weapon, is_brandished in raw_detections:
                 cand = Candidate(norm_label, score, box, is_brandished)
                 if is_weapon:
-                    # Enforce minimum 0.45 confidence threshold for weapons to prune low-conf tile artifacts
-                    if score < max(conf_thresh, 0.45):
+                    if score < conf_thresh:
                         continue
                     if current_filter == "firearms_only" and "Firearm" not in norm_label and "Explosive" not in norm_label:
                         continue
@@ -967,26 +859,27 @@ class RTSPStreamManager:
             merged_non_weapon_candidates = non_max_suppression_candidates(non_weapon_candidates, overlap_thresh=0.20)
             merged_weapon_candidates = non_max_suppression_candidates(weapon_candidates, overlap_thresh=0.30)
 
-            # Suppress weapon detections if they heavily overlap with a face/person box
-            filtered_weapon_candidates = []
+            # Detect if a weapon is being held (brandished) by checking overlap with person boxes
             for w_cand in merged_weapon_candidates:
                 wb = w_cand.box
-                is_spurious = False
+                is_brandished = False
                 for nw_cand in merged_non_weapon_candidates:
+                    # We only care if it overlaps with a person/face
+                    if nw_cand.label not in ("Face", "Person", "Identifying...", "Unknown") and not nw_cand.label.startswith("Associate"):
+                        continue
+                        
                     fb = nw_cand.box
-                    # Compute IoU between weapon box and face/person box
                     xA, yA = max(wb[0], fb[0]), max(wb[1], fb[1])
                     xB, yB = min(wb[2], fb[2]), min(wb[3], fb[3])
                     inter = max(0, xB - xA) * max(0, yB - yA)
                     w_area = (wb[2] - wb[0]) * (wb[3] - wb[1])
-                    # If more than 25% of the weapon box is inside a face box, it's a hallucination
-                    if inter / float(w_area + 1e-6) > 0.25:
-                        is_spurious = True
+                    
+                    # If >10% of the weapon box overlaps with a person box, classify as brandished
+                    if inter / float(w_area + 1e-6) > 0.10:
+                        is_brandished = True
                         break
-                if not is_spurious:
-                    filtered_weapon_candidates.append(w_cand)
-
-            merged_weapon_candidates = filtered_weapon_candidates
+                
+                w_cand.is_brandished = is_brandished
 
             det_list = []
             confirmed = False
@@ -1003,7 +896,7 @@ class RTSPStreamManager:
                         w = x2 - x1
                         h = max(1, y2 - y1)
                         # Reject if box is excessively wide (not person-like) or too small
-                        if w > h * 1.5 or w < 30 or h < 30:
+                        if w > h * 2.5 or w < 30 or h < 30:
                             is_valid = False
                             
                     if not is_valid:
@@ -1111,17 +1004,9 @@ class RTSPStreamManager:
 
             if frame is not None:
                 h_f, w_f = frame.shape[:2]
-                face_boxes = []
-                
-                # 1. Run YOLO Face Detector directly on frame
-                if self.face_detector and hasattr(self.face_detector, "__call__"):
-                    try:
-                        f_results = self.face_detector(frame, conf=0.15, verbose=False)[0]
-                        if f_results.boxes is not None:
-                            for b in f_results.boxes.xyxy.cpu().tolist():
-                                face_boxes.append(b)
-                    except Exception as e:
-                        pass
+                # Use InsightFace SCRFD face detector
+                face_recognizer = self._ensure_face_recognizer()
+                face_boxes = face_recognizer.detect_faces_only(frame, max_faces=5, det_thresh=0.30) if face_recognizer else []
                         
                 if face_boxes:
                     # Pick largest face box
@@ -1139,22 +1024,53 @@ class RTSPStreamManager:
         if not snapshots:
             return False
 
-        return self.face_recognizer.enroll_person(name, snapshots)
+        face_recognizer = self._ensure_face_recognizer()
+        if not face_recognizer:
+            print("[WARN] Face AI is still loading in the background. Cannot enroll yet.")
+            return False
+            
+        return face_recognizer.enroll_person(name, snapshots)
 
     def get_status(self):
         with self.lock:
             active_dets = self.active_detections
             if hasattr(self, 'tracker') and self.tracker.tracks:
                 active_dets = []
+                unknown_count = 0
                 for track in self.tracker.tracks:
                     if track.missed_frames <= 15:
+                        box = track.get_int_box()
+                        if box is None: continue
                         active_dets.append({
                             "track_id": track.track_id,
                             "label": track.label,
                             "confidence": round(float(track.confidence), 3),
-                            "box": track.get_int_box(),
+                            "box": box,
                             "is_weapon": track.is_weapon
                         })
+                        
+                        # Dynamically save crop of Unknown persons for the UI
+                        if (track.label == "Unknown" or track.label.startswith("Associate ")) and self.latest_raw_frame is not None:
+                            unknown_count += 1
+                            if track.track_id not in self.captured_unknowns:
+                                x1, y1, x2, y2 = box
+                                # Add some padding for a better avatar
+                                h, w = y2 - y1, x2 - x1
+                                
+                                # Quality gate: ensure crop is large enough to be a valid snapshot
+                                if w > 40 and h > 40:
+                                    px, py = int(w*0.1), int(h*0.1)
+                                    y1_p, y2_p = max(0, y1-py), min(self.latest_raw_frame.shape[0], y2+py)
+                                    x1_p, x2_p = max(0, x1-px), min(self.latest_raw_frame.shape[1], x2+px)
+                                    crop = self.latest_raw_frame[y1_p:y2_p, x1_p:x2_p]
+                                    
+                                    if crop.size > 0:
+                                        safe_id = f"unknown_track_{track.track_id}"
+                                        save_dir = Path("data/enrolled_faces") / safe_id
+                                        save_dir.mkdir(parents=True, exist_ok=True)
+                                        cv2.imwrite(str(save_dir / f"{safe_id}_1.jpg"), crop)
+                                        self.captured_unknowns.add(track.track_id)
+
 
             return {
                 "connected": self.connected,
