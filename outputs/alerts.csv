@@ -1,0 +1,61 @@
+time_seconds,frame,label,confidence,status
+121.67,4114,Tool,0.718,human_review_required
+151.25,4878,Tool,0.736,human_review_required
+160.22,6271,Tool,0.729,human_review_required
+11.66,356,Firearm,0.714,human_review_required
+22.88,690,Firearm,0.782,human_review_required
+54.71,1850,Tool,0.412,human_review_required
+70.29,2721,Tool,0.448,human_review_required
+81.37,4243,Tool,0.452,human_review_required
+132.36,4965,Tool,0.65,human_review_required
+137.48,5467,Tool,0.46,human_review_required
+180.72,6142,Tool,0.464,human_review_required
+168.73,6453,Tool,0.574,human_review_required
+228.57,8210,Tool,0.451,human_review_required
+274.36,9092,Tool,0.429,human_review_required
+268.94,9654,Tool,0.452,human_review_required
+263.71,9922,Tool,0.629,human_review_required
+299.13,10232,Tool,0.375,human_review_required
+306.79,10454,Tool,0.666,human_review_required
+296.56,10664,Tool,0.398,human_review_required
+302.8,11105,Tool,0.413,human_review_required
+304.86,11759,Tool,0.449,human_review_required
+336.99,12174,Tool,0.506,human_review_required
+373.73,12485,Tool,0.35,human_review_required
+323.71,12676,Tool,0.659,human_review_required
+394.1,14005,Tool,0.674,human_review_required
+28.98,1107,Tool,0.363,human_review_required
+46.79,1689,Tool,0.413,human_review_required
+57.99,1873,Tool,0.405,human_review_required
+69.25,2332,Tool,0.414,human_review_required
+75.54,2607,Tool,0.58,human_review_required
+83.65,3089,Tool,0.611,human_review_required
+149.98,5189,Tool,0.564,human_review_required
+180.88,6015,Tool,0.429,human_review_required
+175.43,6198,Tool,0.409,human_review_required
+20.73,635,Awp,0.434,human_review_required
+2.53,77,Firearm (Gun),0.755,human_review_required
+16.47,1136,Firearm (Gun),0.7,human_review_required
+104.94,2902,Weapon,0.377,human_review_required
+133.6,3662,Weapon,0.38,human_review_required
+136.0,3722,Weapon,0.39,human_review_required
+140.13,3758,Weapon,0.444,human_review_required
+18.6,643,Weapon,0.464,human_review_required
+43.73,1703,Weapon,0.39,human_review_required
+52.72,1827,Weapon,0.358,human_review_required
+4.62,127,Weapon,0.465,human_review_required
+114.96,3184,Melee Weapon,0.37,human_review_required
+12.16,360,Firearm,0.848,human_review_required
+16.43,502,Firearm,0.792,human_review_required
+37.32,1137,Firearm,0.603,human_review_required
+46.84,1415,Firearm,0.808,human_review_required
+25.37,774,Firearm (Gun),0.523,human_review_required
+29.91,910,Firearm (Gun),0.678,human_review_required
+31.79,966,Firearm (Gun),0.572,human_review_required
+42.29,1274,Firearm (Gun),0.423,human_review_required
+45.15,1371,Firearm (Gun),0.813,human_review_required
+47.47,1462,Firearm (Gun),0.447,human_review_required
+51.29,1541,Firearm (Gun),0.767,human_review_required
+52.41,1593,Firearm (Gun),0.616,human_review_required
+54.71,1657,Firearm (Gun),0.735,human_review_required
+56.4,1712,Firearm (Gun),0.436,human_review_required
