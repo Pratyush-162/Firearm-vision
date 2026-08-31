@@ -1,2 +1,9 @@
 .venv/
 .venv2/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.log
+data/enrolled_faces/arcface_cache.pkl
+data/enrolled_faces/*.pkl

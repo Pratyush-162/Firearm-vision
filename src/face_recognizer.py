@@ -55,6 +55,7 @@ class FaceIdentificationEngine:
         self.app = None
         self.det_model = None
         self.rec_model = None
+        self._models_initialized = False
 
         # Enrolled face database
         self.enrolled_profiles = {}
@@ -66,11 +67,19 @@ class FaceIdentificationEngine:
         if not INSIGHTFACE_AVAILABLE:
             return
 
-        # Initialize InsightFace with buffalo_l (SCRFD-10G + ArcFace w600k_r50)
-        self._init_insightface()
-
-        # Build face embedding database from enrolled photos
-        self.reload_enrolled_faces()
+        # Load embeddings from cache only (fast, ~<1s)
+        # Defer InsightFace model loading until first actual use (enrollment/detection)
+        self.reload_enrolled_faces_cache_only()
+    
+    def _lazy_init_models(self):
+        """Lazy-load InsightFace models only when needed for face detection."""
+        if self._models_initialized or not INSIGHTFACE_AVAILABLE:
+            return
+        with self.lock:
+            if self._models_initialized:
+                return
+            self._init_insightface()
+            self._models_initialized = True
 
     # ── Initialization ────────────────────────────────────────────────────────
 
@@ -123,6 +132,7 @@ class FaceIdentificationEngine:
                 "landmark":   5-point keypoints or None
                 "is_matched": bool
         """
+        self._lazy_init_models()
         if self.app is None or frame is None or frame.size == 0:
             return []
 
@@ -197,6 +207,7 @@ class FaceIdentificationEngine:
         Returns:
             list: [[x1, y1, x2, y2], ...]
         """
+        self._lazy_init_models()
         if self.det_model is None or frame is None or frame.size == 0:
             return []
 
@@ -317,6 +328,29 @@ class FaceIdentificationEngine:
 
     # ── Enrollment Database ───────────────────────────────────────────────────
 
+    def reload_enrolled_faces_cache_only(self):
+        """Load face embeddings from cache without initializing InsightFace models."""
+        import pickle
+        with self.lock:
+            self.enrolled_profiles.clear()
+            cache_file = self.enrolled_dir / "arcface_cache.pkl"
+            
+            try:
+                if cache_file.exists():
+                    with open(cache_file, "rb") as f:
+                        data = pickle.load(f)
+                    self.enrolled_profiles = data["enrolled_profiles"]
+                    self.matrix_names = data["matrix_names"]
+                    self.centroid_matrix = data["centroid_matrix"]
+                    self.exemplar_matrix = data["exemplar_matrix"]
+                    self.exemplar_bounds = data["exemplar_bounds"]
+                    print(f"[INFO] ⚡ Loaded ArcFace Database from fast cache! ({len(self.matrix_names)} subjects)")
+                    return
+            except Exception as e:
+                print(f"[WARN] Cache load failed: {e}")
+            
+            print(f"[INFO] No cache found. Will rebuild on next face operation.")
+    
     def reload_enrolled_faces(self):
         """
         Scan data/enrolled_faces/ and build centroid + exemplar 512-d ArcFace

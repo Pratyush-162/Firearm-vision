@@ -309,16 +309,17 @@ class RTSPStreamManager:
         self.gate = TemporalConfirm(frames=self.frames_window, required=self.required_matches)
 
     def _async_load_face_ai(self):
-        # Delay loading by 3 seconds to ensure Uvicorn has time to fully bind to Port 8000
-        # This prevents the heavy ONNX C++ initialization from hogging the Python GIL during boot.
+        # Load face recognition engine in background
+        # If arcface_cache.pkl exists, this is nearly instant (< 1 sec)
+        # Otherwise it rebuilds the cache from enrolled photos
         import time
-        time.sleep(3.0)
-        print("[INFO] Background thread starting Face AI initialization...")
+        time.sleep(0.5)  # Brief delay to let Uvicorn bind first
+        print("[INFO] Background: Loading Face AI from cache...")
         try:
             with self._face_recognizer_lock:
                 self.face_recognizer = FaceIdentificationEngine()
             self.face_ai_ready = True
-            print("[INFO] ✓ Face AI successfully loaded in background.")
+            print("[INFO] ✓ Face AI ready (loaded from cache).")
         except Exception as e:
             print(f"[ERROR] Failed to load Face AI: {e}")
 
